@@ -22,21 +22,21 @@ def build_distribution_matching(x_dim):
     init = tf.placeholder(dtype=tf.float32, shape=[None, x_dim])
     real_x = tf.placeholder(dtype=tf.float32, shape=[None, x_dim])
 
-    batch_size = 20
+    batch_size = 10
     stddev = 1 / np.sqrt(x_dim)
 
-    epsilon = tf.random_normal(tf.convert_to_tensor([batch_size, x_dim], dtype=tf.int64), 0.0, stddev, seed=1234)
+    epsilon = tf.random_normal([batch_size, x_dim], 0.0, stddev, seed=1234)
 
     with tf.variable_scope('gen', reuse=False):
-        fake_x = gan_feed_forward(tf.concat([init, epsilon], 1), [100, 100, x_dim], [tf.nn.relu]*2+[None], False)
+        fake_x = gan_feed_forward(tf.concat([init, epsilon], 1), [200, 200, x_dim], [tf.nn.relu]*2+[None], False)
 
     real_x_concat = tf.concat([init, real_x], 1)
     with tf.variable_scope('disc', reuse=False):
-        real_x_critic = gan_feed_forward(real_x_concat, [300, 300, 1], [tf.nn.relu]*2+[None], False)
+        real_x_critic = gan_feed_forward(real_x_concat, [1024, 1024, 1], [tf.nn.relu]*2+[None], False)
 
     fake_x_concat = tf.concat([init, fake_x], 1)
     with tf.variable_scope('disc', reuse=True):
-        fake_x_critic = gan_feed_forward(fake_x_concat, [300, 300, 1], [tf.nn.relu]*2+[None], False)
+        fake_x_critic = gan_feed_forward(fake_x_concat, [1024, 1024, 1], [tf.nn.relu]*2+[None], False)
 
     # wasserstein
     alpha = tf.random_uniform(tf.convert_to_tensor([batch_size, 1], dtype=tf.int64), 0, 1, seed=SEED)
@@ -49,7 +49,7 @@ def build_distribution_matching(x_dim):
     print(hat_x_concat.get_shape())
 
     with tf.variable_scope('disc', reuse=True):
-        hat_x_critic = gan_feed_forward(hat_x_concat, [300, 300, 1], [tf.nn.relu]*2+[None], False)
+        hat_x_critic = gan_feed_forward(hat_x_concat, [1024, 1024, 1], [tf.nn.relu]*2+[None], False)
 
     w_dist = tf.reduce_mean(real_x_critic) - tf.reduce_mean(fake_x_critic)
     gp_loss = tf.reduce_mean(
@@ -97,7 +97,7 @@ def build_distribution_matching(x_dim):
 
 def train_dist_matching(sess, init_weights_train, trained_weights_train, init_weights_test, ph, targets, niters=1000):
     log_interval = 100
-    batch_size = 20
+    batch_size = 10
     ndata_train = int(trained_weights_train.shape[0])
     print(ndata_train)
     logs = {}
@@ -117,9 +117,10 @@ def train_dist_matching(sess, init_weights_train, trained_weights_train, init_we
         if (i + 1) % log_interval == 0:
             print_log('Dist Train', (i + 1) // log_interval, logs)
             logs = {}
-
-    outs = sess.run(targets['sample']['fake_x'], feed_dict={ph['init']: init_weights_test})
-    return outs
+    outs = []
+    for t in range(init_weights_test.shape[0] // batch_size):
+        outs.append(sess.run(targets['sample']['fake_x'], feed_dict={ph['init']: init_weights_test[t * batch_size: (t + 1) * batch_size]}))
+    return np.concatenate(outs, 0)
 
 
 

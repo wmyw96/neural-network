@@ -19,7 +19,7 @@ parser = argparse.ArgumentParser(description='MNIST')
 parser.add_argument('--x_dim', default=28*28, type=int)
 parser.add_argument('--gpu', default=-1, type=int)
 parser.add_argument('--nclass', default=10, type=int)
-parser.add_argument('--num_hidden', default='100,10', type=str)
+parser.add_argument('--num_hidden', default='10,10', type=str)
 parser.add_argument('--activation', default='tanh', type=str)
 parser.add_argument('--lr', default=1e-3, type=float)
 parser.add_argument('--num_epoches', default=100, type=int)
@@ -28,6 +28,7 @@ parser.add_argument('--epoch_id', default=10, type=int)
 parser.add_argument('--mode', default='dist_train', type=str)
 parser.add_argument('--save_weight_dir', default='saved_weights/mnist-100', type=str)
 parser.add_argument('--load_weight_dir', default='saved_weights/mnist-100', type=str)
+parser.add_argument('--decay', default=0.9, type=float)
 
 def get_network_params():
     num_hidden = args.num_hidden.split(',')
@@ -80,11 +81,11 @@ def build_mnist_model(num_hidden, activation):
     last_layer_weights = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 
         scope='network/dense_{}'.format(len(num_hidden) - 1))
 
-    all_op = tf.train.AdamOptimizer(args.lr, beta1=0.5)
+    all_op = tf.train.AdamOptimizer(args.lr)
     all_grads = all_op.compute_gradients(loss=entropy_loss, var_list=all_weights)
     all_train_op = all_op.apply_gradients(grads_and_vars=all_grads)
-
-    lst_op = tf.train.AdamOptimizer(args.lr, beta1=0.5)
+    decay = tf.placeholder(dtype=tf.float32, shape=[])
+    lst_op = tf.train.AdamOptimizer(args.lr * decay)
     lst_grads = lst_op.compute_gradients(loss=entropy_loss, var_list=last_layer_weights)
     lst_train_op = lst_op.apply_gradients(grads_and_vars=lst_grads)
 
@@ -95,7 +96,8 @@ def build_mnist_model(num_hidden, activation):
 
     ph = {
         'x': x,
-        'y': y
+        'y': y,
+        'lr_decay': decay
     }
     ph['kernel_l0'] = tf.placeholder(dtype=tf.float32, shape=weight_dict['network/dense_0/kernel:0'].get_shape())
     ph['bias_l0'] = tf.placeholder(dtype=tf.float32, shape=weight_dict['network/dense_0/bias:0'].get_shape())
@@ -229,19 +231,21 @@ elif args.mode == 'dist_train':
 
     cur_weights = get_weights(sess, ph, targets)
 
-    for i in range(100):
-        features = train_dist_matching(sess, init_weights, trained_weights, cur_weights, ph_dist, targets_dist)
+    #for i in range(100):
+    if True:
+        features = train_dist_matching(sess, init_weights, trained_weights, cur_weights, ph_dist, targets_dist, 20000)
 
         set_weights(features, sess, ph, targets)
 
-        for epoch in range(20):
+        for epoch in range(100):
             cur_idx = np.random.permutation(ndata_train)
             train_info = {}
+            print('lr decay = {}'.format(args.decay ** epoch))
             for t in tqdm(range(ndata_train // args.batch_size)):
                 batch_idx = cur_idx[t * args.batch_size: (t + 1) * args.batch_size]
                 batch_x = train_images[batch_idx, :]
                 batch_y = train_labels[batch_idx]
-                fetch = sess.run(targets['lst'], feed_dict={ph['x']: batch_x, ph['y']: batch_y})
+                fetch = sess.run(targets['lst'], feed_dict={ph['x']: batch_x, ph['y']: batch_y, ph['lr_decay']: args.decay**epoch})
                 update_loss(fetch, train_info)
 
             test_info = {}
