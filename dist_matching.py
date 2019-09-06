@@ -4,6 +4,7 @@ from utils import *
 
 
 SEED=1234
+BATCH_SIZE=100
 
 
 def gan_feed_forward(x, num_hidden, activation, is_training):
@@ -22,30 +23,30 @@ def build_distribution_matching(x_dim):
     init = tf.placeholder(dtype=tf.float32, shape=[None, x_dim])
     real_x = tf.placeholder(dtype=tf.float32, shape=[None, x_dim])
 
-    batch_size = 10
-    stddev = 1 / np.sqrt(x_dim)
+    batch_size = BATCH_SIZE
+    stddev = 1.0 #/ np.sqrt(x_dim)
 
-    epsilon = tf.random_normal([batch_size, x_dim], 0.0, stddev, seed=1234)
+    epsilon = tf.random_normal([batch_size, x_dim * 2], 0.0, stddev, seed=1234)
 
     with tf.variable_scope('gen', reuse=False):
-        fake_x = gan_feed_forward(tf.concat([init, epsilon], 1), [200, 200, x_dim], [tf.nn.relu]*2+[None], False)
+        fake_x = gan_feed_forward(epsilon, [1024, 1024, 1024, x_dim], [tf.nn.relu]*3+[None], False)
 
-    real_x_concat = tf.concat([init, real_x], 1)
+    real_x_concat = real_x #tf.concat([init, real_x], 1)
     with tf.variable_scope('disc', reuse=False):
         real_x_critic = gan_feed_forward(real_x_concat, [1024, 1024, 1], [tf.nn.relu]*2+[None], False)
 
-    fake_x_concat = tf.concat([init, fake_x], 1)
+    fake_x_concat = fake_x #tf.concat([init, fake_x], 1)
     with tf.variable_scope('disc', reuse=True):
         fake_x_critic = gan_feed_forward(fake_x_concat, [1024, 1024, 1], [tf.nn.relu]*2+[None], False)
 
     # wasserstein
     alpha = tf.random_uniform(tf.convert_to_tensor([batch_size, 1], dtype=tf.int64), 0, 1, seed=SEED)
-    inds = tf.range(batch_size)
-    inds = tf.squeeze(tf.random_shuffle(tf.expand_dims(tf.range(batch_size), 1)))
-    fake_x_ = fake_x_concat
-    real_x_ = tf.gather(real_x_concat, inds)
+    #inds = tf.range(batch_size)
+    #inds = tf.squeeze(tf.random_shuffle(tf.expand_dims(tf.range(batch_size), 1)))
+    #fake_x_ = fake_x_concat
+    #real_x_ = tf.gather(real_x_concat, inds)
 
-    hat_x_concat = fake_x_ * alpha + (1 - alpha) * real_x_
+    hat_x_concat = fake_x * alpha + (1 - alpha) * real_x
     print(hat_x_concat.get_shape())
 
     with tf.variable_scope('disc', reuse=True):
@@ -97,7 +98,7 @@ def build_distribution_matching(x_dim):
 
 def train_dist_matching(sess, init_weights_train, trained_weights_train, init_weights_test, ph, targets, niters=1000):
     log_interval = 100
-    batch_size = 10
+    batch_size = BATCH_SIZE
     ndata_train = int(trained_weights_train.shape[0])
     print(ndata_train)
     logs = {}
@@ -112,7 +113,7 @@ def train_dist_matching(sess, init_weights_train, trained_weights_train, init_we
             for k in range(ncritic):
                 fetch = sess.run(targets['disc'], feed_dict={ph['init']: batch_init, ph['real_x']: batch_x})
                 update_loss(fetch, logs)
-            fetch = sess.run(targets['gen'], feed_dict={ph['init']: batch_init, ph['real_x']: batch_x})
+            fetch = sess.run(targets['gen'], feed_dict={ph['init']: batch_init, ph['real_x']: batch_init})
             update_loss(fetch, logs)
         if (i + 1) % log_interval == 0:
             print_log('Dist Train', (i + 1) // log_interval, logs)

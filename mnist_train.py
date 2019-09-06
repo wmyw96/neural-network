@@ -253,7 +253,8 @@ elif args.mode == 'dist_train':
 
     #for i in range(100):
     if True:
-        features = train_dist_matching(sess, init_weights, trained_weights, cur_weights, ph_dist, targets_dist, 20000)
+        features = train_dist_matching(sess, init_weights, trained_weights, 
+                                       cur_weights, ph_dist, targets_dist, 50000)
 
         set_weights(features, sess, ph, targets)
 
