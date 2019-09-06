@@ -7,6 +7,44 @@ SEED=1234
 BATCH_SIZE=100
 
 
+class dataset(object):
+    def __init__(self, inputs, labels, randomize=True):
+        self.inputs = inputs
+        self.labels = labels
+        if len(self.labels.shape) == 1:
+            self.labels = np.reshape(self.labels,
+                                     [self.labels.shape[0], 1])
+        assert len(self.inputs) == len(self.labels)
+
+        self.randomize = randomize
+        self.num_pairs = len(inputs)
+        self.pointer = self.num_pairs
+        #self.init_pointer()
+
+    def len(self):
+        return self.num_pairs
+
+    def init_pointer(self):
+        self.pointer = 0
+        if self.randomize:
+            idx = np.arange(self.num_pairs)
+            np.random.shuffle(idx)
+            self.inputs = self.inputs[idx, :]
+            self.labels = self.labels[idx, :]
+            
+    def next_batch(self, batch_size):
+        # if batch_size is negative -> return all
+        if batch_size < 0:
+            return self.inputs, self.labels
+        if self.pointer + batch_size >= self.num_pairs:
+            self.init_pointer()
+        end = self.pointer + batch_size
+        inputs = self.inputs[self.pointer:end, :]
+        labels = self.labels[self.pointer:end, :]
+        self.pointer = end
+        return inputs, labels
+
+
 def gan_feed_forward(x, num_hidden, activation, is_training):
     depth = len(num_hidden)
     layers = [tf.identity(x)]
@@ -24,12 +62,12 @@ def build_distribution_matching(x_dim):
     real_x = tf.placeholder(dtype=tf.float32, shape=[None, x_dim])
 
     batch_size = BATCH_SIZE
-    stddev = 1.0 #/ np.sqrt(x_dim)
+    stddev = 1.0 / np.sqrt(x_dim)
 
     epsilon = tf.random_normal([batch_size, x_dim * 2], 0.0, stddev, seed=1234)
 
     with tf.variable_scope('gen', reuse=False):
-        fake_x = gan_feed_forward(epsilon, [1024, 1024, 1024, x_dim], [tf.nn.relu]*3+[None], False)
+        fake_x = gan_feed_forward(epsilon, [1024, 1024, x_dim], [tf.nn.relu]*2+[None], False)
 
     real_x_concat = real_x #tf.concat([init, real_x], 1)
     with tf.variable_scope('disc', reuse=False):
@@ -104,15 +142,16 @@ def train_dist_matching(sess, init_weights_train, trained_weights_train, init_we
     logs = {}
     ncritic = 5
 
+    cps = dataset(init_weights_train, trained_weights_train)
+ 
     for i in range(niters):
         cur_idx = np.random.permutation(ndata_train)
         for t in range(ndata_train // batch_size):
-            batch_idx = cur_idx[t * batch_size: (t + 1) * batch_size]
-            batch_init = init_weights_train[batch_idx, :]
-            batch_x = trained_weights_train[batch_idx, :]
             for k in range(ncritic):
-                fetch = sess.run(targets['disc'], feed_dict={ph['init']: batch_init, ph['real_x']: batch_x})
+                batch_init, batch_x = cps.next_batch(batch_size)
+                fetch = sess.run(targets['disc'], feed_dict={ph['init']: batch_init, ph['real_x']: batch_init})
                 update_loss(fetch, logs)
+            batch_init, batch_x = cps.next_batch(batch_size)
             fetch = sess.run(targets['gen'], feed_dict={ph['init']: batch_init, ph['real_x']: batch_init})
             update_loss(fetch, logs)
         if (i + 1) % log_interval == 0:
